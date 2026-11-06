@@ -1,65 +1,65 @@
 name: Build WaInv APK
 
-"on":
-workflow_dispatch:
-push:
-branches:
-- main
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
-contents: read
+  contents: read
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Checkout
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  - name: Setup Java 17
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '17'
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-  - name: Configure Android SDK
-    run: |
-      echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
-      echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+      - name: Configure Android SDK
+        run: |
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
-  - name: Accept Android SDK licenses
-    run: |
-      yes | sdkmanager --licenses || true
+      - name: Accept Android SDK licenses
+        run: |
+          yes | sdkmanager --licenses || true
 
-  - name: Install Android SDK packages
-    run: |
-      sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-  - name: Setup Gradle
-    uses: gradle/actions/setup-gradle@v4
-    with:
-      gradle-version: '8.9'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
-  - name: Build WaInv APK
-    run: |
-      set -o pipefail
-      gradle :app:assembleDebug --stacktrace --info --console=plain 2>&1 | tee build.log
+      - name: Build WaInv APK
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug --stacktrace --info --console=plain 2>&1 | tee build.log
 
-  - name: Show Kotlin error details
-    if: failure()
-    run: |
-      echo "========== BUILD ERROR REPORT =========="
-      if [ -f build.log ]; then
-        grep -in -E "error:|e: |What went wrong|Caused by:|FAILED|Unresolved reference|overrides nothing" build.log || true
-        echo "========== LAST 100 LINES =========="
-        tail -n 100 build.log
-      fi
+      - name: Show Kotlin error details
+        if: failure()
+        run: |
+          echo "========== BUILD ERROR REPORT =========="
+          if [ -f build.log ]; then
+            grep -in -E "error:|e: |What went wrong|Caused by:|FAILED|Unresolved reference|overrides nothing" build.log || true
+            echo "========== LAST 100 LINES =========="
+            tail -n 100 build.log
+          fi
 
-  - name: Upload APK
-    if: success()
-    uses: actions/upload-artifact@v4
-    with:
-      name: WaInv-debug-apk
-      path: app/build/outputs/apk/debug/app-debug.apk
-      if-no-files-found: error
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaInv-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
