@@ -7,6 +7,7 @@ import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -43,23 +44,26 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // System bars
+        // Black startup background
+        window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
+
+        // Black system bars
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        window.statusBarColor = Color.WHITE
-        window.navigationBarColor = Color.WHITE
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
 
         WindowInsetsControllerCompat(window, window.decorView).apply {
-            isAppearanceLightStatusBars = true
-            isAppearanceLightNavigationBars = true
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
         }
 
-        // Root layout handles status bar and navigation bar spacing
+        // Root layout
         val root = FrameLayout(this)
-        root.setBackgroundColor(Color.WHITE)
+        root.setBackgroundColor(Color.BLACK)
 
         webView = WebView(this)
-        webView.setBackgroundColor(Color.WHITE)
+        webView.setBackgroundColor(Color.BLACK)
 
         root.addView(
             webView,
@@ -71,7 +75,9 @@ class MainActivity : Activity() {
 
         setContentView(root)
 
+        // Correct system bar spacing
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or
                     WindowInsetsCompat.Type.displayCutout()
@@ -112,7 +118,9 @@ class MainActivity : Activity() {
                 view: WebView,
                 request: WebResourceRequest
             ): Boolean {
+
                 if (!request.isForMainFrame) return false
+
                 return handleNavigation(request.url)
             }
 
@@ -131,11 +139,12 @@ class MainActivity : Activity() {
                 super.onPageFinished(view, url)
 
                 if (Uri.parse(url).host == "wainv.vercel.app") {
-                    installBlobDownloadSupport()
+                    installDownloadSupport()
                 }
             }
         }
 
+        // Camera permission
         webView.webChromeClient = object : WebChromeClient() {
 
             override fun onPermissionRequest(request: PermissionRequest) {
@@ -157,10 +166,13 @@ class MainActivity : Activity() {
                         Manifest.permission.CAMERA
                     ) == PackageManager.PERMISSION_GRANTED
                 ) {
+
                     request.grant(
                         arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
                     )
+
                 } else {
+
                     pendingWebPermission = request
 
                     ActivityCompat.requestPermissions(
@@ -173,7 +185,9 @@ class MainActivity : Activity() {
         }
 
         // Normal file downloads
-        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+        webView.setDownloadListener {
+                url, userAgent, contentDisposition, mimeType, _ ->
+
             downloadFile(
                 url,
                 userAgent,
@@ -185,70 +199,112 @@ class MainActivity : Activity() {
         webView.loadUrl(home)
     }
 
-    // Support JavaScript-generated Blob downloads
-    private fun installBlobDownloadSupport() {
+    // Install JavaScript download support
+    private fun installDownloadSupport() {
 
         val script = """
             (function() {
+
                 if (window.__wainvDownloadInstalled) return;
                 window.__wainvDownloadInstalled = true;
 
-                document.addEventListener('click', function(event) {
-                    var link = event.target.closest('a[download]');
-                    if (!link) return;
+                window.__wainvSaveUrl = function(url, name) {
 
-                    var href = link.href;
-                    if (!href || !href.startsWith('blob:')) return;
-
-                    event.preventDefault();
-
-                    fetch(href)
+                    fetch(url)
                         .then(function(response) {
                             return response.blob();
                         })
                         .then(function(blob) {
+
                             var reader = new FileReader();
 
                             reader.onloadend = function() {
+
                                 var base64 = reader.result.split(',')[1];
 
                                 window.WaInvDownload.saveBase64(
                                     base64,
                                     blob.type || 'application/octet-stream',
-                                    link.download || 'WaInv-Bill'
+                                    name || 'WaInv-Bill.png'
                                 );
                             };
 
                             reader.readAsDataURL(blob);
                         })
                         .catch(function(error) {
-                            console.error(error);
+                            console.error('WaInv download error:', error);
                         });
+                };
+
+                document.addEventListener('click', function(event) {
+
+                    var link = event.target.closest('a[download]');
+
+                    if (!link) return;
+
+                    var href = link.href || '';
+
+                    if (
+                        href.startsWith('blob:') ||
+                        href.startsWith('data:')
+                    ) {
+
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+
+                        window.__wainvSaveUrl(
+                            href,
+                            link.download || 'WaInv-Bill.png'
+                        );
+                    }
+
                 }, true);
+
             })();
         """.trimIndent()
 
         webView.evaluateJavascript(script, null)
     }
 
-    // Download normal HTTP and HTTPS files
+    // Normal HTTP/HTTPS downloads
     private fun downloadFile(
         url: String,
         userAgent: String,
         contentDisposition: String,
         mimeType: String
     ) {
+
         try {
+
+            if (url.startsWith("blob:") || url.startsWith("data:")) {
+
+                val fileName = URLUtil.guessFileName(
+                    url,
+                    contentDisposition,
+                    mimeType
+                )
+
+                val script =
+                    "window.__wainvSaveUrl(" +
+                        org.json.JSONObject.quote(url) + "," +
+                        org.json.JSONObject.quote(fileName) +
+                        ");"
+
+                webView.evaluateJavascript(script, null)
+                return
+            }
 
             if (
                 !url.startsWith("http://") &&
                 !url.startsWith("https://")
             ) {
+
                 Toast.makeText(
                     this,
                     "Unsupported download format",
                     Toast.LENGTH_LONG
                 ).show()
+
                 return
             }
 
@@ -281,7 +337,9 @@ class MainActivity : Activity() {
                 fileName
             )
 
-            val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+            val manager =
+                getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+
             manager.enqueue(request)
 
             Toast.makeText(
@@ -291,6 +349,7 @@ class MainActivity : Activity() {
             ).show()
 
         } catch (e: Exception) {
+
             Toast.makeText(
                 this,
                 "Download failed: ${e.message}",
@@ -299,7 +358,7 @@ class MainActivity : Activity() {
         }
     }
 
-    // Save JavaScript-generated files
+    // Save generated image/PDF data
     inner class DownloadBridge {
 
         @JavascriptInterface
@@ -308,6 +367,7 @@ class MainActivity : Activity() {
             mimeType: String,
             fileName: String
         ) {
+
             try {
 
                 val bytes = Base64.decode(
@@ -319,19 +379,32 @@ class MainActivity : Activity() {
                     .substringAfterLast("/")
                     .replace(Regex("[^A-Za-z0-9._-]"), "_")
                     .let {
-                        if (it.isBlank()) "WaInv-Bill" else it
+                        if (it.isBlank()) "WaInv-Bill.png" else it
                     }
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
 
                     val values = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
-                        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+
+                        put(
+                            MediaStore.MediaColumns.DISPLAY_NAME,
+                            safeName
+                        )
+
+                        put(
+                            MediaStore.MediaColumns.MIME_TYPE,
+                            mimeType
+                        )
+
                         put(
                             MediaStore.MediaColumns.RELATIVE_PATH,
                             Environment.DIRECTORY_DOWNLOADS
                         )
-                        put(MediaStore.MediaColumns.IS_PENDING, 1)
+
+                        put(
+                            MediaStore.MediaColumns.IS_PENDING,
+                            1
+                        )
                     }
 
                     val resolver = contentResolver
@@ -346,7 +419,10 @@ class MainActivity : Activity() {
                     } ?: throw Exception("Could not save file")
 
                     val finished = ContentValues().apply {
-                        put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        put(
+                            MediaStore.MediaColumns.IS_PENDING,
+                            0
+                        )
                     }
 
                     resolver.update(uri, finished, null, null)
@@ -365,6 +441,7 @@ class MainActivity : Activity() {
                 }
 
                 runOnUiThread {
+
                     Toast.makeText(
                         this@MainActivity,
                         "Bill saved to Downloads",
@@ -375,6 +452,7 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
 
                 runOnUiThread {
+
                     Toast.makeText(
                         this@MainActivity,
                         "Could not save bill: ${e.message}",
@@ -385,7 +463,7 @@ class MainActivity : Activity() {
         }
     }
 
-    // External links and UPI
+    // UPI and external navigation
     private fun handleNavigation(uri: Uri): Boolean {
 
         val scheme = uri.scheme?.lowercase(Locale.ROOT) ?: return true
@@ -411,9 +489,11 @@ class MainActivity : Activity() {
                 )
 
                 try {
+
                     startActivity(
                         Intent.createChooser(intent, "Open with")
                     )
+
                 } catch (e: Exception) {
 
                     val fallback = intent.getStringExtra(
@@ -430,6 +510,7 @@ class MainActivity : Activity() {
                 true
 
             } catch (e: Exception) {
+
                 showNoAppMessage()
                 true
             }
@@ -472,6 +553,7 @@ class MainActivity : Activity() {
     }
 
     private fun showNoAppMessage() {
+
         Toast.makeText(
             this,
             "No compatible app found to open this link",
@@ -479,11 +561,13 @@ class MainActivity : Activity() {
         ).show()
     }
 
+    // Camera permission result
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
+
         super.onRequestPermissionsResult(
             requestCode,
             permissions,
@@ -499,15 +583,19 @@ class MainActivity : Activity() {
                 grantResults.isNotEmpty() &&
                 grantResults[0] == PackageManager.PERMISSION_GRANTED
             ) {
+
                 request?.grant(
                     arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
                 )
+
             } else {
+
                 request?.deny()
             }
         }
     }
 
+    // Back navigation
     @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
 
@@ -515,8 +603,11 @@ class MainActivity : Activity() {
             ::webView.isInitialized &&
             webView.canGoBack()
         ) {
+
             webView.goBack()
+
         } else {
+
             super.onBackPressed()
         }
     }
@@ -524,8 +615,10 @@ class MainActivity : Activity() {
     override fun onDestroy() {
 
         if (::webView.isInitialized) {
+
             pendingWebPermission?.deny()
             pendingWebPermission = null
+
             webView.destroy()
         }
 
